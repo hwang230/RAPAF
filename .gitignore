@@ -1,0 +1,51 @@
+# Operating-system and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+.toolchains/
+
+# gem5 and compiler build products
+build/
+gem5_build/
+m5out/
+out/
+**/build/
+**/m5out/
+**/out/
+*.o
+*.a
+*.so
+*.d
+
+# Generated simulation reports and logs
+runs/
+results/generated/
+*.log
+stats.txt
+config.ini
+config.json
+citations.bib
+
+# Local tooling state
+.vscode/
+.idea/
+
+# Local generated experiment runs and reports. Keep the hand-authored cases.
+/experiments/*
+!/experiments/cases/
+!/experiments/cases/**
+
+# Local gem5 checkout captures, spreadsheet artifacts, and root-level reports
+/dsp_summary.json
+/memory_metrics.csv
+/memory_metrics.json
+/outputs/

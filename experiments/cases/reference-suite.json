@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "simple-mixed",
+      "manifest": "mixed-simple.json",
+      "reference": "../references/expected/simple-mixed.json"
+    },
+    {
+      "id": "ddr4-mixed",
+      "manifest": "mixed-ddr4.json",
+      "reference": "../references/expected/ddr4-mixed.json"
+    }
+  ]
+}

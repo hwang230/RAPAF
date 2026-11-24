@@ -1,0 +1,7 @@
+diff --git a/src/cpu/kvm/SConsopts b/src/cpu/kvm/SConsopts
+index 6b3c87e..340392a 100644
+--- a/src/cpu/kvm/SConsopts
++++ b/src/cpu/kvm/SConsopts
+@@ -41 +41 @@
+-    main['CONF']['HAVE_KVM'] = False
++    conf.env['CONF']['HAVE_KVM'] = False
