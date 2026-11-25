@@ -1,0 +1,121 @@
+{
+  "architecture": "chiplet_naive",
+  "configuration": "config_a",
+  "workload": {
+    "type": "synthetic"
+  },
+  "memory": "ddr4",
+  "connection": "chiplet_naive",
+  "mem_size": "16MiB",
+  "simple_latency": "30ns",
+  "simple_bandwidth": "12.8GiB/s",
+  "sys_clock": "1GHz",
+  "initiators": {
+    "dsp": {
+      "read_streams": [
+        "sequential_input"
+      ],
+      "write_streams": [
+        "sequential_output"
+      ],
+      "input_base": 4096,
+      "aux_base": 1048576,
+      "state_base": 2097152,
+      "output_base": 32768,
+      "region_size": 4096,
+      "request_size": 64,
+      "stride": 64,
+      "burst_count": 8,
+      "request_spacing": "1ns",
+      "max_outstanding": 1,
+      "compute_delay": "100ns",
+      "idle_gap": "1us",
+      "payload_seed": 213,
+      "traffic_style": "dsp_block",
+      "dimension0": 128,
+      "dimension1": 128,
+      "dimension2": 64,
+      "kernel_size": 3,
+      "heads": 1,
+      "tile_size": 16,
+      "verification": "final",
+      "read_burst_count": 0,
+      "write_burst_count": 0
+    },
+    "npu": {
+      "read_streams": [
+        "input_tile",
+        "weight_tile"
+      ],
+      "write_streams": [
+        "output_tile"
+      ],
+      "input_base": 262144,
+      "aux_base": 327680,
+      "state_base": 393216,
+      "output_base": 393216,
+      "region_size": 16384,
+      "request_size": 64,
+      "stride": 64,
+      "burst_count": 16,
+      "request_spacing": "2ns",
+      "max_outstanding": 8,
+      "compute_delay": "0ns",
+      "idle_gap": "0ns",
+      "payload_seed": 78,
+      "traffic_style": "npu_stream",
+      "dimension0": 128,
+      "dimension1": 128,
+      "dimension2": 64,
+      "kernel_size": 3,
+      "heads": 1,
+      "tile_size": 16,
+      "verification": "final",
+      "read_burst_count": 0,
+      "write_burst_count": 0
+    },
+    "mcu": {
+      "read_streams": [
+        "control"
+      ],
+      "write_streams": [
+        "descriptor"
+      ],
+      "input_base": 458752,
+      "aux_base": 462848,
+      "state_base": 466944,
+      "output_base": 491520,
+      "region_size": 4096,
+      "request_size": 32,
+      "stride": 32,
+      "burst_count": 1,
+      "request_spacing": "250ns",
+      "max_outstanding": 1,
+      "compute_delay": "0ns",
+      "idle_gap": "2us",
+      "payload_seed": 77,
+      "traffic_style": "mcu_control",
+      "dimension0": 128,
+      "dimension1": 128,
+      "dimension2": 64,
+      "kernel_size": 1,
+      "heads": 1,
+      "tile_size": 16,
+      "verification": "final",
+      "read_burst_count": 0,
+      "write_burst_count": 0
+    }
+  },
+  "num_blocks": 2,
+  "interconnect": {
+    "width": 16,
+    "frontend_latency": 1,
+    "forward_latency": 1,
+    "response_latency": 1,
+    "link_delay": "5ns",
+    "link_bandwidth": "16GiB/s",
+    "req_queue_size": 16,
+    "resp_queue_size": 16,
+    "flow_control": "none"
+  }
+}
