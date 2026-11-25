@@ -42,6 +42,33 @@
 namespace gem5
 {
 
+namespace
+{
+
+struct LatencyPercentiles
+{
+    Tick p50;
+    Tick p95;
+    Tick p99;
+};
+
+LatencyPercentiles
+workloadLatencyPercentiles(std::vector<Tick> &samples)
+{
+    if (samples.empty())
+        return {};
+
+    std::sort(samples.begin(), samples.end());
+    const auto count = samples.size();
+
+    // Nearest rank uses ceil(p * count), or count - floor((1 - p) * count).
+    return {samples[count - count / 2 - 1],
+            samples[count - count / 20 - 1],
+            samples[count - count / 100 - 1]};
+}
+
+} // anonymous namespace
+
 SyntheticInitiatorBase::SyntheticInitiatorBaseStats::SyntheticInitiatorBaseStats(statistics::Group *parent)
     : statistics::Group(parent),
       ADD_STAT(attempts, statistics::units::Count::get(), "Send attempts"),
@@ -64,6 +91,18 @@ SyntheticInitiatorBase::SyntheticInitiatorBaseStats::SyntheticInitiatorBaseStats
       ADD_STAT(workWriteLatency, statistics::units::Tick::get(), "Workload write response latency"),
       ADD_STAT(maxWorkReadLatency, statistics::units::Tick::get(), "Maximum workload read latency"),
       ADD_STAT(maxWorkWriteLatency, statistics::units::Tick::get(), "Maximum workload write latency"),
+      ADD_STAT(p50WorkReadLatency, statistics::units::Tick::get(),
+               "50th-percentile workload read response latency"),
+      ADD_STAT(p95WorkReadLatency, statistics::units::Tick::get(),
+               "95th-percentile workload read response latency"),
+      ADD_STAT(p99WorkReadLatency, statistics::units::Tick::get(),
+               "99th-percentile workload read response latency"),
+      ADD_STAT(p50WorkWriteLatency, statistics::units::Tick::get(),
+               "50th-percentile workload write response latency"),
+      ADD_STAT(p95WorkWriteLatency, statistics::units::Tick::get(),
+               "95th-percentile workload write response latency"),
+      ADD_STAT(p99WorkWriteLatency, statistics::units::Tick::get(),
+               "99th-percentile workload write response latency"),
       ADD_STAT(measuredTicks, statistics::units::Tick::get(), "Measured workload interval"),
       ADD_STAT(blockTicks, statistics::units::Tick::get(), "Sum of block intervals"),
       ADD_STAT(verificationErrors, statistics::units::Count::get(), "Readback mismatches")
@@ -354,6 +393,7 @@ SyntheticInitiatorBase::responseComplete(const Transaction &transaction, PacketP
         ++stats.workReadsCompleted;
         stats.payloadBytesRead += requestSize;
         workReadLatencySum += latency;
+        workReadLatencySamples.push_back(latency);
         stats.workReadLatency += latency;
         maxWorkReadLatency = std::max(maxWorkReadLatency, latency);
         stats.maxWorkReadLatency = maxWorkReadLatency;
@@ -368,6 +408,7 @@ SyntheticInitiatorBase::responseComplete(const Transaction &transaction, PacketP
         ++totalWorkWritesCompleted;
         ++stats.workWritesCompleted;
         workWriteLatencySum += latency;
+        workWriteLatencySamples.push_back(latency);
         stats.workWriteLatency += latency;
         maxWorkWriteLatency = std::max(maxWorkWriteLatency, latency);
         stats.maxWorkWriteLatency = maxWorkWriteLatency;
@@ -673,8 +714,17 @@ SyntheticInitiatorBase::phaseName() const
 }
 
 void
-SyntheticInitiatorBase::writeSummary(const std::string &reason) const
+SyntheticInitiatorBase::writeSummary(const std::string &reason)
 {
+    const auto reads = workloadLatencyPercentiles(workReadLatencySamples);
+    const auto writes = workloadLatencyPercentiles(workWriteLatencySamples);
+    stats.p50WorkReadLatency = reads.p50;
+    stats.p95WorkReadLatency = reads.p95;
+    stats.p99WorkReadLatency = reads.p99;
+    stats.p50WorkWriteLatency = writes.p50;
+    stats.p95WorkWriteLatency = writes.p95;
+    stats.p99WorkWriteLatency = writes.p99;
+
     std::ofstream out(summaryPath);
     if (!out.is_open()) {
         warn("%s could not write summary to %s", name(), summaryPath);
@@ -758,7 +808,13 @@ SyntheticInitiatorBase::writeSummary(const std::string &reason) const
         << (totalWorkWritesCompleted ?
             workWriteLatencySum / totalWorkWritesCompleted : 0)
         << ",\n"
-        << "    \"max_write\": " << maxWorkWriteLatency << "\n"
+        << "    \"max_write\": " << maxWorkWriteLatency << ",\n"
+        << "    \"p50_read\": " << reads.p50 << ",\n"
+        << "    \"p95_read\": " << reads.p95 << ",\n"
+        << "    \"p99_read\": " << reads.p99 << ",\n"
+        << "    \"p50_write\": " << writes.p50 << ",\n"
+        << "    \"p95_write\": " << writes.p95 << ",\n"
+        << "    \"p99_write\": " << writes.p99 << "\n"
         << "  },\n"
         << "  \"measurement\": {\n"
         << "    \"elapsed_ticks\": " << measured << ",\n"
