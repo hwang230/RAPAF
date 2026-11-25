@@ -9,14 +9,11 @@ class TrafficRunCoordinator : public ClockedObject
 {
   private:
     const unsigned expectedAgents;
-    const Tick timeout;
     unsigned finishedAgents = 0;
-    EventFunctionWrapper timeoutEvent;
     bool done = false;
   public:
     TrafficRunCoordinator(const TrafficRunCoordinatorParams &p);
-    void startup() override;
-    void agentFinished(const std::string &agent, int exitCode);
+    void agentFinished(const std::string &reason, int exitCode);
 };
 }
 

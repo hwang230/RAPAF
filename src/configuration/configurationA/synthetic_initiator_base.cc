@@ -32,6 +32,7 @@
 #include <iomanip>
 #include <numeric>
 
+#include "base/cprintf.hh"
 #include "base/logging.hh"
 #include "base/trace.hh"
 #include "debug/SyntheticInitiatorBase.hh"
@@ -116,8 +117,8 @@ SyntheticInitiatorBase::SyntheticInitiatorBase(const SyntheticInitiatorBaseParam
       computeEvent([this] { beginWrites(); }, name() + ".compute"),
       idleEvent([this] { phase = Phase::ReadBurst; scheduleDrive(curTick()); },
                 name() + ".idle"),
-      timeoutEvent([this] { finish("DSP prototype timeout", 1); },
-                   name() + ".timeout"),
+      timeoutEvent([this] { watchdogExpired(); }, name() + ".timeout",
+                   false, Event::Progress_Event_Pri),
       requestSize(p.request_size), readsPerBlock(p.reads_per_block),
       writesPerBlock(p.writes_per_block),
       inputReadsPerBlock(p.input_reads_per_block),
@@ -162,7 +163,6 @@ void
 SyntheticInitiatorBase::startup()
 {
     scheduleDrive(curTick());
-    schedule(timeoutEvent, curTick() + timeout);
 }
 
 bool
@@ -216,6 +216,7 @@ SyntheticInitiatorBase::drive()
     ++stats.attempts;
     if (!port.sendTimingReq(pendingPacket)) {
         requestBlocked = true;
+        updateWatchdog(false);
         ++rejected;
         ++stats.rejected;
         DPRINTF(SyntheticInitiatorBase, "%s rejected %s block=%llu index=%llu\n",
@@ -285,9 +286,12 @@ SyntheticInitiatorBase::makePending()
 void
 SyntheticInitiatorBase::acceptPending()
 {
+    // A retry accepted after an empty window now starts waiting for a reply.
+    const bool firstOutstanding = outstanding.empty();
     requestBlocked = false;
     pendingTransaction.accepted = curTick();
     outstanding.emplace(pendingPacket, pendingTransaction);
+    updateWatchdog(firstOutstanding);
     ++accepted;
     ++stats.accepted;
     peakOutstanding = std::max<uint64_t>(peakOutstanding, outstanding.size());
@@ -339,6 +343,7 @@ SyntheticInitiatorBase::recvTimingResp(PacketPtr pkt)
     outstanding.erase(found);
     ++completed;
     ++stats.completed;
+    updateWatchdog(true);
     responseComplete(transaction, pkt);
     delete pkt;
     return true;
@@ -353,6 +358,39 @@ SyntheticInitiatorBase::recvReqRetry()
              "%s got recvReqRetry without a retained packet", name());
     requestBlocked = false;
     scheduleDrive(std::max(curTick(), nextSendTick));
+}
+
+void
+SyntheticInitiatorBase::updateWatchdog(bool madeProgress)
+{
+    const bool armed = timeoutEvent.scheduled();
+    if (outstanding.empty() && !requestBlocked) {
+        if (armed)
+            deschedule(timeoutEvent);
+        return;
+    }
+
+    if (madeProgress || !armed)
+        lastProgressTick = curTick();
+    if (!armed)
+        schedule(timeoutEvent, curTick() + timeout);
+}
+
+void
+SyntheticInitiatorBase::watchdogExpired()
+{
+    // A completion can extend the deadline without moving the event.
+    const Tick elapsed = curTick() - lastProgressTick;
+    if (elapsed < timeout) {
+        schedule(timeoutEvent, curTick() + (timeout - elapsed));
+        return;
+    }
+
+    finish(csprintf("%s request-progress timeout after %llu ticks "
+                    "(phase=%s, outstanding=%llu, waiting for retry=%s, "
+                    "accepted=%llu, completed=%llu)",
+                    name(), elapsed, phaseName(), outstanding.size(),
+                    requestBlocked ? "yes" : "no", accepted, completed), 1);
 }
 
 void
@@ -507,7 +545,7 @@ SyntheticInitiatorBase::finish(const std::string &reason, int exit_code)
         deschedule(timeoutEvent);
     writeSummary(reason);
     if (coordinator)
-        coordinator->agentFinished(name(), exit_code);
+        coordinator->agentFinished(reason, exit_code);
     else
         exitSimLoop(reason, exit_code);
 }
@@ -730,7 +768,8 @@ SyntheticInitiatorBase::writeSummary(const std::string &reason)
         warn("%s could not write summary to %s", name(), summaryPath);
         return;
     }
-    const Tick measured = measurementStarted ? measuredEnd - measuredStart : 0;
+    const Tick measured = measurementStarted && measuredEnd >= measuredStart ?
+        measuredEnd - measuredStart : 0;
     const uint64_t bytes_read = totalWorkReadsCompleted * requestSize;
     const uint64_t bytes_written = totalWorkWritesCompleted * requestSize;
     const uint64_t payload = bytes_read + bytes_written;

@@ -9,4 +9,3 @@ class TrafficRunCoordinator(ClockedObject):
     cxx_class = "gem5::TrafficRunCoordinator"
     system = Param.System(Parent.any, "Containing system")
     expected_agents = Param.Unsigned(1, "Number of enabled initiators")
-    timeout = Param.Latency("10ms", "Global watchdog")

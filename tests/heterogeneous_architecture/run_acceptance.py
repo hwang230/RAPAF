@@ -9,6 +9,7 @@ replicating its state-machine implementation.
 import argparse
 import json
 import pathlib
+import re
 import subprocess
 import tempfile
 
@@ -106,11 +107,22 @@ def main():
         )
         assert "request size" in invalid.stderr
 
-        timeout = run(
-            args.gem5, root, "timeout", "--timeout", "1ps",
-            expect_success=False,
+        long_gaps = run(
+            args.gem5, root, "long-gaps", "--num-blocks", "2",
+            "--timeout", "5us", "--compute-delay", "50us", "--idle-gap", "50us",
         )
-        assert "DSP prototype timeout" in timeout.stdout
+        successful(long_gaps)
+
+        timeout = run(
+            args.gem5, root, "timeout", "--timeout", "50us",
+            "--simple-latency", "1ms", expect_success=False,
+        )
+        assert timeout.returncode == 1
+        assert "request-progress timeout" in timeout.stdout
+        assert "completed=0" in timeout.stdout
+        assert re.search(
+            r"outstanding=\d+, waiting for retry=(yes|no)", timeout.stdout
+        )
 
         for kernel in ("convolution", "attention", "gemm", "rnn"):
             outdir = root / kernel

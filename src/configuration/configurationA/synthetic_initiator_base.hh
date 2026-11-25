@@ -115,6 +115,8 @@ class SyntheticInitiatorBase : public ClockedObject
     void scheduleDrive(Tick when);
     bool makePending();
     void acceptPending();
+    void updateWatchdog(bool madeProgress);
+    void watchdogExpired();
     bool recvTimingResp(PacketPtr pkt);
     void recvReqRetry();
     void recvRangeChange();
@@ -185,6 +187,7 @@ class SyntheticInitiatorBase : public ClockedObject
     Transaction pendingTransaction{};
     std::unordered_map<PacketPtr, Transaction> outstanding;
     Tick nextSendTick = 0;
+    Tick lastProgressTick = 0;
     Tick measuredStart = 0;
     Tick measuredEnd = 0;
     Tick blockStart = 0;
