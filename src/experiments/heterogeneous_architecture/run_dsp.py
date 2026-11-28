@@ -113,8 +113,7 @@ def arguments():
     args.config_manifest = {}
     # Standalone command lines use the same synthetic workload default as
     # manifests. Previously this was initialized only while loading a manifest.
-    args.workload_type = "synthetic"
-    args.kernel = None
+    args.workload_type = args.workload
     return args
 
 
