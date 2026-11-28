@@ -28,8 +28,13 @@ profile without creating a kernel-specific hardware initiator. Role traffic
 remains independent; explicit handoff events are not modeled.
 
 `TrafficRunCoordinator` waits for all three Configuration A initiators and
-owns the global watchdog. Each initiator emits its own summary and the runner
-emits aggregate counters.
+ends the run on the first failure. Each initiator has a request-progress
+watchdog armed while it has an outstanding request or is waiting to retry a
+rejected send. A response refreshes the initiator's deadline. When no request
+is waiting, scheduled compute and idle gaps can run without a watchdog event.
+`--timeout` (also `timeout` in a manifest) is the allowed simulated gap in
+request progress for one initiator. Each initiator emits its own summary and
+the runner emits aggregate counters.
 
 `NoncoherentXBarInterconnect` and the memory target classes are independent
 from workload and initiator logic. Targets insert timing `CommMonitor`

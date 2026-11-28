@@ -32,6 +32,7 @@
 #include <iomanip>
 #include <numeric>
 
+#include "base/cprintf.hh"
 #include "base/logging.hh"
 #include "base/trace.hh"
 #include "debug/SyntheticInitiatorBase.hh"
@@ -41,6 +42,33 @@
 
 namespace gem5
 {
+
+namespace
+{
+
+struct LatencyPercentiles
+{
+    Tick p50;
+    Tick p95;
+    Tick p99;
+};
+
+LatencyPercentiles
+workloadLatencyPercentiles(std::vector<Tick> &samples)
+{
+    if (samples.empty())
+        return {};
+
+    std::sort(samples.begin(), samples.end());
+    const auto count = samples.size();
+
+    // Nearest rank uses ceil(p * count), or count - floor((1 - p) * count).
+    return {samples[count - count / 2 - 1],
+            samples[count - count / 20 - 1],
+            samples[count - count / 100 - 1]};
+}
+
+} // anonymous namespace
 
 SyntheticInitiatorBase::SyntheticInitiatorBaseStats::SyntheticInitiatorBaseStats(statistics::Group *parent)
     : statistics::Group(parent),
@@ -64,6 +92,18 @@ SyntheticInitiatorBase::SyntheticInitiatorBaseStats::SyntheticInitiatorBaseStats
       ADD_STAT(workWriteLatency, statistics::units::Tick::get(), "Workload write response latency"),
       ADD_STAT(maxWorkReadLatency, statistics::units::Tick::get(), "Maximum workload read latency"),
       ADD_STAT(maxWorkWriteLatency, statistics::units::Tick::get(), "Maximum workload write latency"),
+      ADD_STAT(p50WorkReadLatency, statistics::units::Tick::get(),
+               "50th-percentile workload read response latency"),
+      ADD_STAT(p95WorkReadLatency, statistics::units::Tick::get(),
+               "95th-percentile workload read response latency"),
+      ADD_STAT(p99WorkReadLatency, statistics::units::Tick::get(),
+               "99th-percentile workload read response latency"),
+      ADD_STAT(p50WorkWriteLatency, statistics::units::Tick::get(),
+               "50th-percentile workload write response latency"),
+      ADD_STAT(p95WorkWriteLatency, statistics::units::Tick::get(),
+               "95th-percentile workload write response latency"),
+      ADD_STAT(p99WorkWriteLatency, statistics::units::Tick::get(),
+               "99th-percentile workload write response latency"),
       ADD_STAT(measuredTicks, statistics::units::Tick::get(), "Measured workload interval"),
       ADD_STAT(blockTicks, statistics::units::Tick::get(), "Sum of block intervals"),
       ADD_STAT(verificationErrors, statistics::units::Count::get(), "Readback mismatches")
@@ -77,8 +117,8 @@ SyntheticInitiatorBase::SyntheticInitiatorBase(const SyntheticInitiatorBaseParam
       computeEvent([this] { beginWrites(); }, name() + ".compute"),
       idleEvent([this] { phase = Phase::ReadBurst; scheduleDrive(curTick()); },
                 name() + ".idle"),
-      timeoutEvent([this] { finish("DSP prototype timeout", 1); },
-                   name() + ".timeout"),
+      timeoutEvent([this] { watchdogExpired(); }, name() + ".timeout",
+                   false, Event::Progress_Event_Pri),
       requestSize(p.request_size), readsPerBlock(p.reads_per_block),
       writesPerBlock(p.writes_per_block),
       inputReadsPerBlock(p.input_reads_per_block),
@@ -123,7 +163,6 @@ void
 SyntheticInitiatorBase::startup()
 {
     scheduleDrive(curTick());
-    schedule(timeoutEvent, curTick() + timeout);
 }
 
 bool
@@ -177,6 +216,7 @@ SyntheticInitiatorBase::drive()
     ++stats.attempts;
     if (!port.sendTimingReq(pendingPacket)) {
         requestBlocked = true;
+        updateWatchdog(false);
         ++rejected;
         ++stats.rejected;
         DPRINTF(SyntheticInitiatorBase, "%s rejected %s block=%llu index=%llu\n",
@@ -246,9 +286,12 @@ SyntheticInitiatorBase::makePending()
 void
 SyntheticInitiatorBase::acceptPending()
 {
+    // A retry accepted after an empty window now starts waiting for a reply.
+    const bool firstOutstanding = outstanding.empty();
     requestBlocked = false;
     pendingTransaction.accepted = curTick();
     outstanding.emplace(pendingPacket, pendingTransaction);
+    updateWatchdog(firstOutstanding);
     ++accepted;
     ++stats.accepted;
     peakOutstanding = std::max<uint64_t>(peakOutstanding, outstanding.size());
@@ -300,6 +343,7 @@ SyntheticInitiatorBase::recvTimingResp(PacketPtr pkt)
     outstanding.erase(found);
     ++completed;
     ++stats.completed;
+    updateWatchdog(true);
     responseComplete(transaction, pkt);
     delete pkt;
     return true;
@@ -314,6 +358,39 @@ SyntheticInitiatorBase::recvReqRetry()
              "%s got recvReqRetry without a retained packet", name());
     requestBlocked = false;
     scheduleDrive(std::max(curTick(), nextSendTick));
+}
+
+void
+SyntheticInitiatorBase::updateWatchdog(bool madeProgress)
+{
+    const bool armed = timeoutEvent.scheduled();
+    if (outstanding.empty() && !requestBlocked) {
+        if (armed)
+            deschedule(timeoutEvent);
+        return;
+    }
+
+    if (madeProgress || !armed)
+        lastProgressTick = curTick();
+    if (!armed)
+        schedule(timeoutEvent, curTick() + timeout);
+}
+
+void
+SyntheticInitiatorBase::watchdogExpired()
+{
+    // A completion can extend the deadline without moving the event.
+    const Tick elapsed = curTick() - lastProgressTick;
+    if (elapsed < timeout) {
+        schedule(timeoutEvent, curTick() + (timeout - elapsed));
+        return;
+    }
+
+    finish(csprintf("%s request-progress timeout after %llu ticks "
+                    "(phase=%s, outstanding=%llu, waiting for retry=%s, "
+                    "accepted=%llu, completed=%llu)",
+                    name(), elapsed, phaseName(), outstanding.size(),
+                    requestBlocked ? "yes" : "no", accepted, completed), 1);
 }
 
 void
@@ -354,6 +431,7 @@ SyntheticInitiatorBase::responseComplete(const Transaction &transaction, PacketP
         ++stats.workReadsCompleted;
         stats.payloadBytesRead += requestSize;
         workReadLatencySum += latency;
+        workReadLatencySamples.push_back(latency);
         stats.workReadLatency += latency;
         maxWorkReadLatency = std::max(maxWorkReadLatency, latency);
         stats.maxWorkReadLatency = maxWorkReadLatency;
@@ -368,6 +446,7 @@ SyntheticInitiatorBase::responseComplete(const Transaction &transaction, PacketP
         ++totalWorkWritesCompleted;
         ++stats.workWritesCompleted;
         workWriteLatencySum += latency;
+        workWriteLatencySamples.push_back(latency);
         stats.workWriteLatency += latency;
         maxWorkWriteLatency = std::max(maxWorkWriteLatency, latency);
         stats.maxWorkWriteLatency = maxWorkWriteLatency;
@@ -466,7 +545,7 @@ SyntheticInitiatorBase::finish(const std::string &reason, int exit_code)
         deschedule(timeoutEvent);
     writeSummary(reason);
     if (coordinator)
-        coordinator->agentFinished(name(), exit_code);
+        coordinator->agentFinished(reason, exit_code);
     else
         exitSimLoop(reason, exit_code);
 }
@@ -673,14 +752,24 @@ SyntheticInitiatorBase::phaseName() const
 }
 
 void
-SyntheticInitiatorBase::writeSummary(const std::string &reason) const
+SyntheticInitiatorBase::writeSummary(const std::string &reason)
 {
+    const auto reads = workloadLatencyPercentiles(workReadLatencySamples);
+    const auto writes = workloadLatencyPercentiles(workWriteLatencySamples);
+    stats.p50WorkReadLatency = reads.p50;
+    stats.p95WorkReadLatency = reads.p95;
+    stats.p99WorkReadLatency = reads.p99;
+    stats.p50WorkWriteLatency = writes.p50;
+    stats.p95WorkWriteLatency = writes.p95;
+    stats.p99WorkWriteLatency = writes.p99;
+
     std::ofstream out(summaryPath);
     if (!out.is_open()) {
         warn("%s could not write summary to %s", name(), summaryPath);
         return;
     }
-    const Tick measured = measurementStarted ? measuredEnd - measuredStart : 0;
+    const Tick measured = measurementStarted && measuredEnd >= measuredStart ?
+        measuredEnd - measuredStart : 0;
     const uint64_t bytes_read = totalWorkReadsCompleted * requestSize;
     const uint64_t bytes_written = totalWorkWritesCompleted * requestSize;
     const uint64_t payload = bytes_read + bytes_written;
@@ -758,7 +847,13 @@ SyntheticInitiatorBase::writeSummary(const std::string &reason) const
         << (totalWorkWritesCompleted ?
             workWriteLatencySum / totalWorkWritesCompleted : 0)
         << ",\n"
-        << "    \"max_write\": " << maxWorkWriteLatency << "\n"
+        << "    \"max_write\": " << maxWorkWriteLatency << ",\n"
+        << "    \"p50_read\": " << reads.p50 << ",\n"
+        << "    \"p95_read\": " << reads.p95 << ",\n"
+        << "    \"p99_read\": " << reads.p99 << ",\n"
+        << "    \"p50_write\": " << writes.p50 << ",\n"
+        << "    \"p95_write\": " << writes.p95 << ",\n"
+        << "    \"p99_write\": " << writes.p99 << "\n"
         << "  },\n"
         << "  \"measurement\": {\n"
         << "    \"elapsed_ticks\": " << measured << ",\n"

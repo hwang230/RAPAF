@@ -100,6 +100,12 @@ class SyntheticInitiatorBase : public ClockedObject
         statistics::Scalar workWriteLatency;
         statistics::Scalar maxWorkReadLatency;
         statistics::Scalar maxWorkWriteLatency;
+        statistics::Scalar p50WorkReadLatency;
+        statistics::Scalar p95WorkReadLatency;
+        statistics::Scalar p99WorkReadLatency;
+        statistics::Scalar p50WorkWriteLatency;
+        statistics::Scalar p95WorkWriteLatency;
+        statistics::Scalar p99WorkWriteLatency;
         statistics::Scalar measuredTicks;
         statistics::Scalar blockTicks;
         statistics::Scalar verificationErrors;
@@ -109,6 +115,8 @@ class SyntheticInitiatorBase : public ClockedObject
     void scheduleDrive(Tick when);
     bool makePending();
     void acceptPending();
+    void updateWatchdog(bool madeProgress);
+    void watchdogExpired();
     bool recvTimingResp(PacketPtr pkt);
     void recvReqRetry();
     void recvRangeChange();
@@ -118,7 +126,7 @@ class SyntheticInitiatorBase : public ClockedObject
     void finishBlock();
     void beginVerify();
     void finish(const std::string &reason, int exit_code);
-    void writeSummary(const std::string &reason) const;
+    void writeSummary(const std::string &reason);
     PacketPtr makePacket(Addr addr, bool write, const Transaction &transaction);
     uint8_t inputByte(Addr addr, unsigned offset) const;
     uint8_t outputByte(uint64_t block, uint64_t index, unsigned offset) const;
@@ -179,6 +187,7 @@ class SyntheticInitiatorBase : public ClockedObject
     Transaction pendingTransaction{};
     std::unordered_map<PacketPtr, Transaction> outstanding;
     Tick nextSendTick = 0;
+    Tick lastProgressTick = 0;
     Tick measuredStart = 0;
     Tick measuredEnd = 0;
     Tick blockStart = 0;
@@ -206,6 +215,8 @@ class SyntheticInitiatorBase : public ClockedObject
     uint64_t workWriteLatencySum = 0;
     Tick maxWorkReadLatency = 0;
     Tick maxWorkWriteLatency = 0;
+    std::vector<Tick> workReadLatencySamples;
+    std::vector<Tick> workWriteLatencySamples;
     std::vector<Tick> blockTimes;
     bool requestBlocked = false;
     bool rangesChanged = false;

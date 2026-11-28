@@ -98,7 +98,8 @@ def arguments():
     parser.add_argument("--input-base", type=nonnegative_int, default=0x1000)
     parser.add_argument("--output-base", type=nonnegative_int, default=0x8000)
     parser.add_argument("--cache-line-size", type=positive_int, default=64)
-    parser.add_argument("--timeout", default="10ms")
+    parser.add_argument("--timeout", default="10ms",
+                        help="Maximum simulated wait for request progress per initiator")
     parser.add_argument("--summary", default="dsp_summary.json")
     parser.add_argument("--metrics-json", default="memory_metrics.json")
     parser.add_argument("--metrics-csv", default="memory_metrics.csv")
@@ -254,8 +255,7 @@ def build_system(args):
     enabled = list(ROLES)
     profiles = validate(args)
     summary_dir = getattr(m5.options, "outdir", os.getcwd())
-    coordinator = TrafficRunCoordinator(expected_agents=len(enabled),
-                                        timeout=args.timeout)
+    coordinator = TrafficRunCoordinator(expected_agents=len(enabled))
     system.coordinator = coordinator
     for name in enabled:
         profile = profiles[name]

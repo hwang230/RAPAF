@@ -32,7 +32,7 @@ class SyntheticInitiatorBase(ClockedObject):
     stride = Param.Unsigned(64, "Byte stride between logical requests")
     payload_seed = Param.Unsigned(0xd5, "Deterministic payload seed")
     cache_line_size = Param.Unsigned(64, "Maximum request/cache-line size")
-    timeout = Param.Latency("10ms", "Whole-prototype watchdog")
+    timeout = Param.Latency("10ms", "Maximum simulated request-progress gap")
     summary_path = Param.String("initiator_summary.json", "JSON result file path")
     backend = Param.String("simple", "Configuration metadata only")
     connection = Param.String("direct", "Configuration metadata only")
